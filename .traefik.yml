@@ -5,5 +5,5 @@ import: github.com/xethlyx/traefik-real-ip
 summary: Personal fork
 
 testData:
-  excludednets:
-    - "1.1.1.1/24"
+  trustedIPs:
+    - "10.0.0.0/24"

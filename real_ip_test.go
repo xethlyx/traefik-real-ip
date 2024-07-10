@@ -4,14 +4,15 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	plugin "github.com/soulbalz/traefik-real-ip"
+	plugin "github.com/xethlyx/traefik-real-ip"
 )
 
 func TestNew(t *testing.T) {
 	cfg := plugin.CreateConfig()
-	cfg.ExcludedNets = []string{"127.0.0.1/24"}
+	cfg.TrustedIPs = []string{"10.0.0.0/24"}
 
 	ctx := context.Background()
 	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {})
@@ -22,28 +23,60 @@ func TestNew(t *testing.T) {
 	}
 
 	testCases := []struct {
-		header        string
-		desc          string
-		xForwardedFor string
-		expected      string
+		desc                 string
+		remoteAddr           string
+		header               string
+		value                string
+		expectedRealIp       string
+		expectedForwardedFor []string
 	}{
 		{
-			header:        "X-Forwarded-For",
-			desc:          "don't forward",
-			xForwardedFor: "127.0.0.2",
-			expected:      "",
+			desc:                 "don't forward",
+			remoteAddr:           "10.0.1.0:9000",
+			header:               "X-Forwarded-For",
+			value:                "127.0.0.2",
+			expectedRealIp:       "10.0.1.0",
+			expectedForwardedFor: []string{"10.0.1.0"},
 		},
 		{
-			header:        "X-Forwarded-For",
-			desc:          "forward",
-			xForwardedFor: "10.0.0.1",
-			expected:      "10.0.0.1",
+			desc:                 "don't forward multiple",
+			remoteAddr:           "10.0.1.0:9000",
+			header:               "X-Forwarded-For",
+			value:                "127.0.0.2, 10.0.0.1",
+			expectedRealIp:       "10.0.1.0",
+			expectedForwardedFor: []string{"10.0.1.0"},
 		},
 		{
-			header:        "Cf-Connecting-Ip",
-			desc:          "forward",
-			xForwardedFor: "10.0.0.1",
-			expected:      "10.0.0.1",
+			desc:                 "overwrite real ip",
+			remoteAddr:           "10.0.1.0:9000",
+			header:               "X-Real-Ip",
+			value:                "127.0.0.2",
+			expectedRealIp:       "10.0.1.0",
+			expectedForwardedFor: []string{"10.0.1.0"},
+		},
+		{
+			desc:                 "forward",
+			remoteAddr:           "10.0.0.1:9000",
+			header:               "X-Forwarded-For",
+			value:                "1.1.1.1",
+			expectedRealIp:       "1.1.1.1",
+			expectedForwardedFor: []string{"1.1.1.1"},
+		},
+		{
+			desc:                 "forward multiple",
+			remoteAddr:           "10.0.0.1:9000",
+			header:               "X-Forwarded-For",
+			value:                "10.0.0.3, 1.1.1.1, 10.0.0.20",
+			expectedRealIp:       "1.1.1.1",
+			expectedForwardedFor: []string{"1.1.1.1", "10.0.0.20"},
+		},
+		{
+			desc:                 "forward empty",
+			remoteAddr:           "10.0.0.1:9000",
+			header:               "X-Forwarded-For",
+			value:                "",
+			expectedRealIp:       "10.0.0.1",
+			expectedForwardedFor: []string{"10.0.0.1"},
 		},
 	}
 
@@ -56,20 +89,19 @@ func TestNew(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			req.RemoteAddr = test.remoteAddr
 
-			req.Header.Set(test.header, test.xForwardedFor)
+			req.Header.Set(test.header, test.value)
 
 			handler.ServeHTTP(recorder, req)
 
-			assertHeader(t, req, "X-Real-Ip", test.expected)
+			if req.Header.Get("X-Real-Ip") != test.expectedRealIp {
+				t.Errorf("invalid X-Real-Ip value: %s", req.Header.Get("X-Real-Ip"))
+			}
+
+			if req.Header.Get("X-Forwarded-For") != strings.Join(test.expectedForwardedFor, ", ") {
+				t.Errorf("invalid X-Forwarded-For value: %s", req.Header.Get("X-Forwarded-For"))
+			}
 		})
-	}
-}
-
-func assertHeader(t *testing.T, req *http.Request, key, expected string) {
-	t.Helper()
-
-	if req.Header.Get(key) != expected {
-		t.Errorf("invalid header value: %s", req.Header.Get(key))
 	}
 }

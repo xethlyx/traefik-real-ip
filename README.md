@@ -1,8 +1,8 @@
 # Traefik Real IP
 
-If Traefik is behind a load balancer, it won't be able to get the Real IP from the external client by checking the remote IP address.
+If Traefik is behind a load balancer, it won't be able to get the Real IP from the external client by checking the remote IP address. Traefik can be configured to accept `X-Real-Ip` and `X-Forwarded-For`, but `X-Real-Ip` is only set to the IP of the connecting proxy. This bridges the gap and passes the data downwards to applications behind the proxy.
 
-This plugin solves this issue by overwriting the X-Real-Ip with an IP from the X-Forwarded-For or Cf-Connecting-Ip (if from Cloudflare) header. The real IP will be the first one that is not included in any of the CIDRs passed as the ExcludedNets parameter. The evaluation of the X-Forwarded-For or Cf-Connecting-Ip (if from Cloudflare) IPs will go from the last to the first one.
+Evaluation of `X-Forwarded-For` IPs will go from the last to first, breaking on the first untrusted IP. This also removes all untrusted IPs from `X-Forwarded-For`.
 
 #
 ## Configuration
@@ -16,7 +16,7 @@ pilot:
 experimental:
   plugins:
     traefik-real-ip:
-      modulename: github.com/soulbalz/traefik-real-ip
+      modulename: github.com/xethlyx/traefik-real-ip
       version: v1.0.3
 ```
 
@@ -38,7 +38,7 @@ http:
       loadBalancer:
         servers:
           - url: http://127.0.0.1:5000
-  
+
   middlewares:
     traefik-real-ip:
       plugin:
@@ -128,6 +128,6 @@ Supported configurations per body
 
 | Setting           | Allowed values      | Required    | Description |
 | :--               | :--                 | :--         | :--         |
-| excludednets      | []string            | No          | IP or IP range to exclude forward IP |
+| trustedIPs        | []string            | No          | CIDR IP ranges to trust (use `/32` for a single value) |
 
 #

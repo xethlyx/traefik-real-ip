@@ -2,93 +2,134 @@ package traefik_real_ip
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strings"
 )
 
 const (
-	xRealIP        = "X-Real-Ip"
-	xForwardedFor  = "X-Forwarded-For"
-	cfConnectingIP = "Cf-Connecting-Ip"
+	xRealIP       = "X-Real-Ip"
+	xForwardedFor = "X-Forwarded-For"
 )
 
 // Config the plugin configuration.
 type Config struct {
-	ExcludedNets []string `json:"excludednets,omitempty" toml:"excludednets,omitempty" yaml:"excludednets,omitempty"`
+	TrustedIPs []string `json:"trustedIPs,omitempty" toml:"trustedIPs,omitempty" yaml:"trustedIPs,omitempty"`
 }
 
 // CreateConfig creates the default plugin configuration.
 func CreateConfig() *Config {
 	return &Config{
-		ExcludedNets: []string{},
+		TrustedIPs: []string{},
 	}
 }
 
-// RealIPOverWriter is a plugin that blocks incoming requests depending on their source IP.
-type RealIPOverWriter struct {
-	next         http.Handler
-	name         string
-	ExcludedNets []*net.IPNet
+// IPRewriter is a plugin that blocks incoming requests depending on their source IP.
+type IPRewriter struct {
+	next       http.Handler
+	name       string
+	trustedIPs []*net.IPNet
 }
 
 // New created a new Demo plugin.
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
-	ipOverWriter := &RealIPOverWriter{
+	ipRewriter := &IPRewriter{
 		next: next,
 		name: name,
 	}
 
-	for _, v := range config.ExcludedNets {
+	for _, v := range config.TrustedIPs {
 		_, excludedNet, err := net.ParseCIDR(v)
 		if err != nil {
 			return nil, err
 		}
 
-		ipOverWriter.ExcludedNets = append(ipOverWriter.ExcludedNets, excludedNet)
+		ipRewriter.trustedIPs = append(ipRewriter.trustedIPs, excludedNet)
 	}
 
-	return ipOverWriter, nil
+	return ipRewriter, nil
 }
 
-func (r *RealIPOverWriter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	forwardedIPs := strings.Split(req.Header.Get(xForwardedFor), ",")
-
-	// TODO - Implement a max for the iterations
-	var realIP string
-	for i := len(forwardedIPs) - 1; i >= 0; i-- {
-		// TODO - Check if TrimSpace is necessary
-		trimmedIP := strings.TrimSpace(forwardedIPs[i])
-		if !r.excludedIP(trimmedIP) {
-			realIP = trimmedIP
-			break
-		}
+func (r *IPRewriter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	clientIP, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		log.Println("[real ip plugin] error while getting remote address:", err)
+		rw.WriteHeader(500)
+		fmt.Fprintf(rw, "500 internal error")
+		return
 	}
 
-	if realIP == "" {
-		realIP = req.Header.Get(cfConnectingIP)
-		if realIP != "" {
-			req.Header.Set(xForwardedFor, realIP)
-		}
-	}
+	clientIP = removeIPv6Zone(clientIP)
 
-	req.Header.Set(xRealIP, realIP)
+	if trusted, err := r.trustedIP(clientIP); err == nil && trusted {
+		err := r.rewriteIP(clientIP, rw, req)
+		if err != nil {
+			log.Println("[real ip plugin] error while overwriting remote address:", err)
+			rw.WriteHeader(500)
+			fmt.Fprintf(rw, "500 internal error")
+			return
+		}
+	} else {
+		req.Header.Set(xRealIP, clientIP)
+		req.Header.Set(xForwardedFor, clientIP)
+	}
 
 	r.next.ServeHTTP(rw, req)
 }
 
-func (r *RealIPOverWriter) excludedIP(s string) bool {
-	ip := net.ParseIP(s)
-	if ip == nil {
-		// log the error and fallback to the default value (check if true is ok)
-		return true
+func (r *IPRewriter) rewriteIP(clientIP string, rw http.ResponseWriter, req *http.Request) error {
+	var forwardedIPs []string
+	if xForwardedFor := req.Header.Get(xForwardedFor); xForwardedFor != "" {
+		// Strict adherence requires separation with ", ", but some proxies appear to strip whitespace
+		forwardedIPs = strings.Split(xForwardedFor, ",")
 	}
 
-	for _, network := range r.ExcludedNets {
-		if network.Contains(ip) {
-			return true
+	forwardedIPs = append(forwardedIPs, clientIP)
+
+	index := len(forwardedIPs) - 1
+	for i := len(forwardedIPs) - 1; i >= 0; i-- {
+		forwardedIPs[i] = strings.TrimSpace(forwardedIPs[i])
+		trusted, err := r.trustedIP(forwardedIPs[i])
+
+		if err != nil {
+			return err
+		}
+
+		index = i
+		if !trusted {
+			break
 		}
 	}
 
-	return false
+	req.Header.Set(xForwardedFor, strings.Join(forwardedIPs[index:max(len(forwardedIPs)-1, 1)], ", "))
+	req.Header.Set(xRealIP, forwardedIPs[index])
+
+	return nil
+}
+
+func (r *IPRewriter) trustedIP(s string) (bool, error) {
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return false, errors.New("no ip specified")
+	}
+
+	for _, network := range r.trustedIPs {
+		if network.Contains(ip) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// https://github.com/traefik/traefik/blob/b1b4e6b918e8eeaf9e24823baf24dbc77f7d373e/pkg/middlewares/forwardedheaders/forwarded_header.go#L86
+// Licensed under MIT
+func removeIPv6Zone(clientIP string) string {
+	if idx := strings.Index(clientIP, "%"); idx != -1 {
+		return clientIP[:idx]
+	}
+	return clientIP
 }
