@@ -17,7 +17,7 @@ experimental:
   plugins:
     traefik-real-ip:
       modulename: github.com/xethlyx/traefik-real-ip
-      version: v1.0.3
+      version: v1.0.4
 ```
 
 ### Dynamic configuration
@@ -43,7 +43,7 @@ http:
     traefik-real-ip:
       plugin:
         traefik-real-ip:
-          excludednets:
+          trustedIPs:
             - "1.1.1.1/24"
 ```
 
@@ -99,7 +99,7 @@ metadata:
 spec:
   plugin:
     traefik-real-ip:
-      excludednets:
+      trustedIPs:
         - "1.1.1.1/24"
 
 ---
