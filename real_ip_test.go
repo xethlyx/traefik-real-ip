@@ -74,7 +74,7 @@ func TestNew(t *testing.T) {
 			desc:                 "forward empty",
 			remoteAddr:           "10.0.0.1:9000",
 			header:               "X-Forwarded-For",
-			value:                "10.0.0.1",
+			value:                "",
 			expectedRealIp:       "10.0.0.1",
 			expectedForwardedFor: []string{"10.0.0.1"},
 		},

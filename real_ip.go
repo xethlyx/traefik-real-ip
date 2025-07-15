@@ -81,14 +81,14 @@ func (r *IPRewriter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (r *IPRewriter) rewriteIP(clientIP string, rw http.ResponseWriter, req *http.Request) error {
-	// Note that Traefik will ensure the last element is the IP of the proxy, and that X-Forwarded-For is normalized
-	// The internal parsing middleware runs before this
-	// https://github.com/traefik/traefik/blob/5c94bbf122408399fa9e9da3c8abb1b7fa7300c2/pkg/server/server_entrypoint_tcp.go#L602
-
 	var forwardedIPs []string
 	if xForwardedFor := req.Header.Get(xForwardedFor); xForwardedFor != "" {
 		// Strict adherence requires separation with ", ", but some proxies appear to strip whitespace
 		forwardedIPs = strings.Split(xForwardedFor, ",")
+	}
+
+	if len(forwardedIPs) == 0 || strings.TrimSpace(forwardedIPs[len(forwardedIPs) - 1]) != clientIP {
+		forwardedIPs = append(forwardedIPs, clientIP)
 	}
 
 	index := len(forwardedIPs) - 1
