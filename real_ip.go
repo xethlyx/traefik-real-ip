@@ -74,7 +74,7 @@ func (r *IPRewriter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 	} else {
 		req.Header.Set(xRealIP, clientIP)
-		req.Header.Set(xForwardedFor, clientIP)
+		req.Header.Del(xForwardedFor)
 	}
 
 	r.next.ServeHTTP(rw, req)
@@ -87,11 +87,9 @@ func (r *IPRewriter) rewriteIP(clientIP string, rw http.ResponseWriter, req *htt
 		forwardedIPs = strings.Split(xForwardedFor, ",")
 	}
 
-	if len(forwardedIPs) == 0 || strings.TrimSpace(forwardedIPs[len(forwardedIPs) - 1]) != clientIP {
-		forwardedIPs = append(forwardedIPs, clientIP)
-	}
+	// note that traefik appends the IP onto X-Forwarded-For only after all middleware is parsed, so we should not add the IP ourselves
 
-	index := len(forwardedIPs) - 1
+	index := -1
 	for i := len(forwardedIPs) - 1; i >= 0; i-- {
 		forwardedIPs[i] = strings.TrimSpace(forwardedIPs[i])
 		trusted, err := r.trustedIP(forwardedIPs[i])
@@ -106,8 +104,13 @@ func (r *IPRewriter) rewriteIP(clientIP string, rw http.ResponseWriter, req *htt
 		}
 	}
 
-	req.Header.Set(xForwardedFor, strings.Join(forwardedIPs[index:max(len(forwardedIPs), 1)], ", "))
-	req.Header.Set(xRealIP, forwardedIPs[index])
+	if index == -1 {
+		req.Header.Del(xForwardedFor)
+		req.Header.Set(xRealIP, clientIP)
+	} else {
+		req.Header.Set(xForwardedFor, strings.Join(forwardedIPs[index:], ", "))
+		req.Header.Set(xRealIP, forwardedIPs[index])
+	}
 
 	return nil
 }

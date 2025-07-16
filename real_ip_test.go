@@ -34,41 +34,41 @@ func TestNew(t *testing.T) {
 			desc:                 "don't forward",
 			remoteAddr:           "10.0.1.0:9000",
 			header:               "X-Forwarded-For",
-			value:                "127.0.0.2, 10.0.1.0",
+			value:                "127.0.0.2",
 			expectedRealIp:       "10.0.1.0",
-			expectedForwardedFor: []string{"10.0.1.0"},
+			expectedForwardedFor: []string{""},
 		},
 		{
 			desc:                 "don't forward multiple",
 			remoteAddr:           "10.0.1.0:9000",
 			header:               "X-Forwarded-For",
-			value:                "127.0.0.2, 10.0.0.1, 10.0.1.0",
+			value:                "127.0.0.2, 10.0.0.1",
 			expectedRealIp:       "10.0.1.0",
-			expectedForwardedFor: []string{"10.0.1.0"},
+			expectedForwardedFor: []string{""},
 		},
 		{
 			desc:                 "overwrite real ip",
 			remoteAddr:           "10.0.1.0:9000",
 			header:               "X-Real-Ip",
-			value:                "127.0.0.2, 10.0.1.0",
+			value:                "127.0.0.2",
 			expectedRealIp:       "10.0.1.0",
-			expectedForwardedFor: []string{"10.0.1.0"},
+			expectedForwardedFor: []string{""},
 		},
 		{
 			desc:                 "forward",
 			remoteAddr:           "10.0.0.1:9000",
 			header:               "X-Forwarded-For",
-			value:                "1.1.1.1, 10.0.0.1",
+			value:                "1.1.1.1",
 			expectedRealIp:       "1.1.1.1",
-			expectedForwardedFor: []string{"1.1.1.1", "10.0.0.1"},
+			expectedForwardedFor: []string{"1.1.1.1"},
 		},
 		{
 			desc:                 "forward multiple",
 			remoteAddr:           "10.0.0.1:9000",
 			header:               "X-Forwarded-For",
-			value:                "10.0.0.3, 1.1.1.1, 10.0.0.20, 10.0.0.1",
+			value:                "10.0.0.3, 1.1.1.1, 10.0.0.20",
 			expectedRealIp:       "1.1.1.1",
-			expectedForwardedFor: []string{"1.1.1.1", "10.0.0.20", "10.0.0.1"},
+			expectedForwardedFor: []string{"1.1.1.1", "10.0.0.20"},
 		},
 		{
 			desc:                 "forward empty",
@@ -76,7 +76,7 @@ func TestNew(t *testing.T) {
 			header:               "X-Forwarded-For",
 			value:                "",
 			expectedRealIp:       "10.0.0.1",
-			expectedForwardedFor: []string{"10.0.0.1"},
+			expectedForwardedFor: []string{""},
 		},
 	}
 
@@ -100,7 +100,7 @@ func TestNew(t *testing.T) {
 			}
 
 			if req.Header.Get("X-Forwarded-For") != strings.Join(test.expectedForwardedFor, ", ") {
-				t.Errorf("invalid X-Forwarded-For value: %s", req.Header.Get("X-Forwarded-For"))
+				t.Errorf("invalid X-Forwarded-For value: %s (expected `%s`)", req.Header.Get("X-Forwarded-For"), strings.Join(test.expectedForwardedFor, ", "))
 			}
 		})
 	}
